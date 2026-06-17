@@ -54,7 +54,15 @@ let
     let
       baseName = baseNameOf name;
 
-      configFile = writeText "config-${baseName}.json" (builtins.toJSON config);
+      configDir = runCommand "config-${baseName}" {
+        configJson = builtins.toJSON config;
+        passAsFile = [ "configJson" ];
+      } ''
+        mkdir -p $out
+        cp "$configJsonPath" $out/config.json
+      '';
+
+      configFile = "${configDir}/config.json";
 
       copyToRootList = lib.toList (args.copyToRoot or []);
 
