@@ -116,6 +116,23 @@ func TestBuild(t *testing.T) {
 	}
 }
 
+func TestBuildRejectsFileStorePath(t *testing.T) {
+	testDir := t.TempDir()
+	configPath := writeOut(t, testDir, "imageConfig", ocispec.ImageConfig{})
+	copyToRootsPath := writeCopyToRoots(t, testDir, "copyToRoots", nil)
+
+	filePath := filepath.Join(testDir, "file-store-path")
+	err := os.WriteFile(filePath, []byte("content"), 0o644)
+	require.NoError(t, err)
+
+	closurePath := filepath.Join(testDir, "storePaths")
+	err = os.WriteFile(closurePath, []byte(filePath+"\n"), 0o644)
+	require.NoError(t, err)
+
+	_, err = Build(context.Background(), configPath, closurePath, copyToRootsPath)
+	require.ErrorContains(t, err, "non-directory store path")
+}
+
 func writeOut(t *testing.T, testDir, name string, data interface{}) string {
 	dt, err := json.MarshalIndent(data, "", "  ")
 	require.NoError(t, err)

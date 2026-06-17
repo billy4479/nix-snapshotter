@@ -382,15 +382,20 @@ func (o *nixSnapshotter) withNixBindMounts(ctx context.Context, key string, moun
 			}
 			pathsSeen[nixStorePath] = struct{}{}
 
+			fi, err := os.Stat(nixStorePath)
+			if err != nil {
+				return nil, err
+			}
+			if !fi.IsDir() {
+				continue
+			}
+
 			log.G(ctx).Debugf("[nix-snapshotter] Bind mounting nix store path %s", nixStorePath)
 			mounts = append(mounts, mount.Mount{
-				Type:   "bind",
-				Source: nixStorePath,
-				Target: nixStorePath,
-				Options: []string{
-					"ro",
-					"rbind",
-				},
+				Type:    "bind",
+				Source:  nixStorePath,
+				Target:  nixStorePath,
+				Options: []string{"ro", "rbind"},
 			})
 		}
 

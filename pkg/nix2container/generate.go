@@ -304,19 +304,12 @@ func writeNixClosureLayer(ctx context.Context, w io.Writer, nixStorePaths, copyT
 		if err != nil {
 			return "", err
 		}
+		if !fi.IsDir() {
+			return "", fmt.Errorf("runtime closure contains non-directory store path %q; wrap file outputs in a directory, for example with writeShellScriptBin or writeTextDir", nixStorePath)
+		}
 
 		relStorePath := filepath.Join(root, nixStorePath)
-		if fi.IsDir() {
-			err = os.MkdirAll(relStorePath, 0o755)
-		} else {
-			err = os.MkdirAll(filepath.Dir(relStorePath), 0o755)
-			if err != nil {
-				return "", err
-			}
-
-			err = os.WriteFile(relStorePath, nil, 0o555)
-		}
-		if err != nil {
+		if err = os.MkdirAll(relStorePath, 0o755); err != nil {
 			return "", err
 		}
 

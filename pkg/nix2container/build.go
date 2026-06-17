@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 	"runtime"
@@ -60,6 +61,9 @@ func Build(ctx context.Context, configPath, closurePath, copyToRootPath string, 
 	if err != nil {
 		return nil, err
 	}
+	if err = validateDirectoryStorePaths(image.NixStorePaths); err != nil {
+		return nil, err
+	}
 
 	log.G(ctx).
 		WithField("closure-count", len(image.NixStorePaths)).
@@ -76,6 +80,19 @@ func Build(ctx context.Context, configPath, closurePath, copyToRootPath string, 
 	}
 
 	return image, nil
+}
+
+func validateDirectoryStorePaths(nixStorePaths []string) error {
+	for _, nixStorePath := range nixStorePaths {
+		fi, err := os.Stat(nixStorePath)
+		if err != nil {
+			return err
+		}
+		if !fi.IsDir() {
+			return fmt.Errorf("runtime closure contains non-directory store path %q; wrap file outputs in a directory, for example with writeShellScriptBin or writeTextDir", nixStorePath)
+		}
+	}
+	return nil
 }
 
 func ReadClosure(closurePath string) ([]string, error) {

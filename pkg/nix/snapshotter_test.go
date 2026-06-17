@@ -57,17 +57,28 @@ func TestNixSnapshotter(t *testing.T) {
 				"/other/nix/store/g2m8kfw7kpgpph05v2fxcx4d5an09hl3-hello-2.12.1",
 			},
 		},
+		{
+			name: "includes file path",
+			nixStorePaths: []string{
+				"/nix/store/34xlpp3j3vy7ksn09zh44f1c04w77khf-libunistring-1.0",
+				"/nix/store/4nlgxhb09sdr51nc9hdm8az5b08vzkgx-config-hello.json",
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 
 			testDir := t.TempDir()
+			realStorePaths, err := setupStorePaths(testDir, tc.nixStorePaths)
+			require.NoError(t, err)
+			tc.nixStorePaths = realStorePaths
+
 			labels := map[string]string{
 				nix2container.NixClosureAnnotation: testDir,
 			}
 
 			closure := strings.Join(tc.nixStorePaths, "\n")
-			err := os.WriteFile(filepath.Join(testDir, "store-paths"), []byte(closure), 0o755)
+			err = os.WriteFile(filepath.Join(testDir, "store-paths"), []byte(closure), 0o755)
 			require.NoError(t, err)
 
 			testBindMounts(ctx, t, tc, labels)
@@ -122,6 +133,11 @@ func TestNixSnapshotterLegacy(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
+			testDir := t.TempDir()
+
+			realStorePaths, err := setupStorePaths(testDir, tc.nixStorePaths)
+			require.NoError(t, err)
+			tc.nixStorePaths = realStorePaths
 
 			labels := map[string]string{}
 			for idx, value := range tc.nixStorePaths {
@@ -156,6 +172,12 @@ func testBindMounts(ctx context.Context, t *testing.T, tc testCase, labels map[s
 
 	expectedMounts := []mount.Mount{}
 	for _, nixStorePath := range tc.nixStorePaths {
+		fi, err := os.Stat(nixStorePath)
+		require.NoError(t, err)
+		if !fi.IsDir() {
+			continue
+		}
+
 		expectedMounts = append(expectedMounts,
 			mount.Mount{
 				Type:    "bind",
@@ -165,6 +187,34 @@ func testBindMounts(ctx context.Context, t *testing.T, tc testCase, labels map[s
 			})
 	}
 	testutil.IsIdentical(t, mounts, expectedMounts)
+}
+
+func setupStorePaths(root string, storePaths []string) ([]string, error) {
+	var realStorePaths []string
+	for _, storePath := range storePaths {
+		rel := strings.TrimPrefix(storePath, "/")
+		realStorePath := filepath.Join(root, rel)
+		realStorePaths = append(realStorePaths, realStorePath)
+
+		if strings.HasSuffix(storePath, ".json") {
+			err := os.MkdirAll(filepath.Dir(realStorePath), 0o755)
+			if err != nil {
+				return nil, err
+			}
+			err = os.WriteFile(realStorePath, []byte("{}"), 0o644)
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		err := os.MkdirAll(realStorePath, 0o755)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return realStorePaths, nil
 }
 
 func testGCRoots(ctx context.Context, t *testing.T, tc testCase, labels map[string]string) {

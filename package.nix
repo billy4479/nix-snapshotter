@@ -94,6 +94,15 @@ let
             copyToContainerd = copyToContainerd image;
           };
         } ''
+          while IFS= read -r path; do
+            if [ ! -d "$path" ]; then
+              echo "nix-snapshotter buildImage only supports directory store paths in the runtime closure" >&2
+              echo "offending path: $path" >&2
+              echo "wrap file outputs in a directory, for example with writeShellScriptBin or writeTextDir" >&2
+              exit 1
+            fi
+          done < "${runtimeClosureInfo}/store-paths"
+
           ${nix-snapshotter}/bin/nix2container build \
             --config "${configFile}" \
             --closure "${runtimeClosureInfo}/store-paths" \

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -123,91 +124,53 @@ func TestWriteNixClosureLayer(t *testing.T) {
 			[]string{},
 		},
 		{
-			"file",
-			[]string{"$TEST_DIR/test-file"},
-			[]string{},
-			[]string{"$TEST_DIR_EXPAND", "$TEST_DIR/test-file"},
-		},
-		{
-			"file_with_dirs",
-			[]string{"$TEST_DIR/test-dir/bin/test-file"},
-			[]string{},
-			[]string{
-				"$TEST_DIR_EXPAND",
-				"$TEST_DIR/test-dir/",
-				"$TEST_DIR/test-dir/bin/",
-				"$TEST_DIR/test-dir/bin/test-file",
-			},
-		},
-		{
-			"file_with_copy_to_root",
-			[]string{"$TEST_DIR/test-dir1/bin/test-file1", "$TEST_DIR/test-dir2/bin/test-file2"},
-			[]string{"$TEST_DIR/test-dir1/"},
-			[]string{
-				"$TEST_DIR_EXPAND",
-				"$TEST_DIR/test-dir1/",
-				"$TEST_DIR/test-dir1/bin/",
-				"$TEST_DIR/test-dir1/bin/test-file1",
-				"$TEST_DIR/test-dir2/",
-				"$TEST_DIR/test-dir2/bin/",
-				"$TEST_DIR/test-dir2/bin/test-file2",
-				"/bin/",
-				"/bin/test-file1",
-			},
-		},
-		{
-			"file_with_copy_to_root_and_no_trailing_slash",
-			[]string{"$TEST_DIR/test-dir/bin/test-file"},
+			"directory",
 			[]string{"$TEST_DIR/test-dir"},
+			[]string{},
+			[]string{"$TEST_DIR_EXPAND", "$TEST_DIR/test-dir/"},
+		},
+		{
+			"directory_with_copy_to_root",
+			[]string{"$TEST_DIR/test-dir"},
+			[]string{"$TEST_DIR/test-dir/"},
 			[]string{
 				"$TEST_DIR_EXPAND",
 				"$TEST_DIR/test-dir/",
-				"$TEST_DIR/test-dir/bin/",
-				"$TEST_DIR/test-dir/bin/test-file",
 				"/bin/",
 				"/bin/test-file",
 			},
 		},
 		{
-			"multiple_files",
-			[]string{"$TEST_DIR/test-dir/bin/test-file1", "$TEST_DIR/test-dir/bin/test-file2"},
-			[]string{"$TEST_DIR/test-dir/"},
+			"directory_with_copy_to_root_and_no_trailing_slash",
+			[]string{"$TEST_DIR/test-dir"},
+			[]string{"$TEST_DIR/test-dir"},
 			[]string{
 				"$TEST_DIR_EXPAND",
 				"$TEST_DIR/test-dir/",
-				"$TEST_DIR/test-dir/bin/",
-				"$TEST_DIR/test-dir/bin/test-file1",
-				"$TEST_DIR/test-dir/bin/test-file2",
 				"/bin/",
-				"/bin/test-file1",
-				"/bin/test-file2"},
+				"/bin/test-file",
+			},
 		},
 		{
-			"multiple_files_on_different_levels",
-			[]string{"$TEST_DIR/test-dir/bin/test-file", "$TEST_DIR/test-file"},
-			[]string{"$TEST_DIR/test-dir/"},
+			"multiple_directories",
+			[]string{"$TEST_DIR/test-dir1", "$TEST_DIR/test-dir2"},
+			[]string{"$TEST_DIR/test-dir1/"},
 			[]string{
 				"$TEST_DIR_EXPAND",
-				"$TEST_DIR/test-dir/",
-				"$TEST_DIR/test-dir/bin/",
-				"$TEST_DIR/test-dir/bin/test-file",
-				"$TEST_DIR/test-file",
+				"$TEST_DIR/test-dir1/",
+				"$TEST_DIR/test-dir2/",
 				"/bin/",
 				"/bin/test-file",
 			},
 		},
 		{
 			"multiple_copy_to_roots",
-			[]string{"$TEST_DIR/test-dir1/bin/test-file", "$TEST_DIR/test-dir2/share/test-file"},
+			[]string{"$TEST_DIR/test-dir1", "$TEST_DIR/test-dir2"},
 			[]string{"$TEST_DIR/test-dir1", "$TEST_DIR/test-dir2/"},
 			[]string{
 				"$TEST_DIR_EXPAND",
 				"$TEST_DIR/test-dir1/",
-				"$TEST_DIR/test-dir1/bin/",
-				"$TEST_DIR/test-dir1/bin/test-file",
 				"$TEST_DIR/test-dir2/",
-				"$TEST_DIR/test-dir2/share/",
-				"$TEST_DIR/test-dir2/share/test-file",
 				"/bin/",
 				"/bin/test-file",
 				"/share/",
@@ -225,19 +188,21 @@ func TestWriteNixClosureLayer(t *testing.T) {
 				}
 			}
 
-			// Generate files for the store paths and append the test dir we
+			// Generate directory store paths and append the test dir we
 			// are working in to the paths
 			for idx, path := range tc.storePaths {
 				path := os.Expand(path, dirMapper)
-				_, err := os.Stat(filepath.Dir(path))
-				if os.IsNotExist(err) {
-					err = os.MkdirAll(filepath.Dir(path), 0o755)
+				if strings.HasSuffix(filepath.Base(path), "2") {
+					err := os.MkdirAll(filepath.Join(path, "share"), 0o755)
+					require.NoError(t, err)
+					err = os.WriteFile(filepath.Join(path, "share", "test-file"), []byte("content:"+path), 0o644)
+					require.NoError(t, err)
+				} else {
+					err := os.MkdirAll(filepath.Join(path, "bin"), 0o755)
+					require.NoError(t, err)
+					err = os.WriteFile(filepath.Join(path, "bin", "test-file"), []byte("content:"+path), 0o644)
+					require.NoError(t, err)
 				}
-				require.NoError(t, err)
-				f, err := os.Create(path)
-				require.NoError(t, err)
-				err = f.Close()
-				require.NoError(t, err)
 				tc.storePaths[idx] = path
 			}
 
@@ -258,7 +223,6 @@ func TestWriteNixClosureLayer(t *testing.T) {
 			for path, attrs := range tempFs {
 				fsOut = append(fsOut, "/"+path)
 				require.Equal(t, attrs.ModTime, time.Unix(0, 0))
-				require.Equal(t, attrs.Data, make([]byte, 0))
 			}
 
 			for idx, path := range tc.expectedTarballPaths {
@@ -281,6 +245,17 @@ func TestWriteNixClosureLayer(t *testing.T) {
 			testutil.IsIdentical(t, fsOut, tc.expectedTarballPaths)
 		})
 	}
+}
+
+func TestWriteNixClosureLayerRejectsFileStorePath(t *testing.T) {
+	testDir := t.TempDir()
+	storePath := filepath.Join(testDir, "file-store-path")
+	err := os.WriteFile(storePath, []byte("content"), 0o644)
+	require.NoError(t, err)
+
+	buf := new(bytes.Buffer)
+	_, err = writeNixClosureLayer(context.Background(), buf, []string{storePath}, nil)
+	require.ErrorContains(t, err, "non-directory store path")
 }
 
 func newMapFSFromTar(tarBytes []byte) (fstest.MapFS, error) {
